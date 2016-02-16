@@ -8,7 +8,7 @@ from pyspark import SparkContext, SparkConf
 from datetime import datetime, timedelta
 
 bucket = "capstonedata2"
-filename = "airlines_ontime_summ3.csv"
+filename = "airlines_ontime_summ2.csv"
 s3link = "s3n://"+bucket+"/"+filename
 cluster = Cluster(
     contact_points=['54.86.121.193'],
@@ -16,9 +16,10 @@ cluster = Cluster(
 keyspace = 'aviation'
 table = 'spark_q32'
 session = cluster.connect(keyspace)
+#origin, connectionport, destination, odate, ddate, delay, dtime, otime
 prepared_stmt = session.prepare ( "INSERT INTO " + keyspace + "." + table +
-                                  " (airport, odate, otime, connectionport, ddate, dtime, destination, odelay, "
-                                  "cdelay) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                                  " (origin, connectionport, destination, odate, ddate, delay, dtime, otime) "
+                                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
 
 def carrier_tuple(line):
     try:
@@ -50,25 +51,28 @@ if __name__ == "__main__":
     .filter(lambda line: line[0] <> 'error')
     print('------------INPUT DATA PROCESSED-------------')
     leg1 = data\
-    .filter(lambda value: value[1][4]==1)\
-    .map(lambda v: ((v[0][0], v[0][1], v[1][0]),(v[1][3], v[1][1], v[1][2], v[1][4])))\
-    .reduceByKey(min)\
-    .map(lambda v: ((v[0][0], v[0][1]), (v[0][2], v[1][1], v[1][2], v[1][0], v[1][3])))
+    .filter(lambda value: value[1][4]==1)
+#    .map(lambda v: ((v[0][0], v[0][1], v[1][0]),(v[1][3], v[1][1], v[1][2], v[1][4])))
+#    .reduceByKey(min)\
+#    .map(lambda v: ((v[0][0], v[0][1]), (v[0][2], v[1][1], v[1][2], v[1][0], v[1][3])))
 
     print('------------LEG1 BUILDED-------------')
     leg2 = data.filter(lambda value: value[1][4]==2)\
-    .map(lambda v: ((v[0][0], v[0][1], v[1][0]),(v[1][3], v[1][1], v[1][2], v[1][4])))\
-    .reduceByKey(min)\
-    .map(lambda v: ((v[0][0], v[0][1]), (v[0][2], v[1][1], v[1][2], v[1][0], v[1][3])))
+    .join(leg1)
+#    .map(lambda v: ((v[0][0], v[0][1], v[1][0]),(v[1][3], v[1][1], v[1][2], v[1][4])))\
+    #    .reduceByKey(min)\
+#    .map(lambda v: ((v[0][0], v[0][1]), (v[0][2], v[1][1], v[1][2], v[1][0], v[1][3])))\
     print('------------LEG2 BUILDED-------------')
-    result = leg1.join(leg2)
+#    result = leg1.join(leg2)
     print('------------RESULTS BUILDED-------------')
-    output=result.collect()
+    output=leg2.collectAsMap()
 
-    for airports in output:
+    for airports in output.keys():
+#        print(airports)
+#        print(output[airports])
         route = {}
-        route['connectionport'] = airports[0][0]
-        for val in airports[1]:
+        route['connectionport'] = airports[0]
+        for val in output[airports]:
             if val[4] == 1:
                 route['airport'] = val[0]
                 route['depdate'] = val[1]
@@ -80,9 +84,9 @@ if __name__ == "__main__":
                 route['depconndelay'] = str(val[3])
                 route['finaldestination'] = val[0]
 #        print(route)
-#            airport, odate, otime, connectionport, ddate, dtime, destination, odelay, cdelay
-        bound_stmt = prepared_stmt.bind([route['airport'], route['depdate'], route['deptime'], route['connectionport'],
-            route['depconndate'], route['depconntime'], route['finaldestination'], route['depdelay'],
-            route['depconndelay']])
+            #origin, connectionport, destination, odate, ddate, delay, dtime, otime
+        bound_stmt = prepared_stmt.bind([route['airport'], route['connectionport'], route['finaldestination'],
+                                         route['depdate'], route['depconndate'], route['depconndelay'],
+                                         route['depconntime'], route['deptime']])
         stmt = session.execute(bound_stmt)
     sc.stop()
